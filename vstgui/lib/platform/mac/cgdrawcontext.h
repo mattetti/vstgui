@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../coffscreencontext.h"
+#include "../iplatformdrawcontext.h"
 
 #if MAC
 
@@ -88,6 +89,90 @@ protected:
 	double scaleFactor;
 };
 
+//------------------------------------------------------------------------------------
+namespace Platform {
+
+//------------------------------------------------------------------------------------
+class CoreGraphicsDrawDevice : public IDrawDevice
+{
+public:
+	CoreGraphicsDrawDevice (CGContextRef context);
+	~CoreGraphicsDrawDevice () noexcept;
+
+	void beginDraw () override;
+	void endDraw () override;
+
+	void drawLine (const LinePair& line) override;
+	void drawLines (const LineList& lines) override;
+	void drawPolygon (const PointList& polygonPointList,
+	                  DrawStyle drawStyle = DrawStyle::Stroked) override;
+	void drawRect (const CRect& rect, DrawStyle drawStyle = DrawStyle::Stroked) override;
+	void drawArc (const CRect& rect, float startAngle1, float endAngle2,
+	              DrawStyle drawStyle = DrawStyle::Stroked) override;
+	void drawEllipse (const CRect& rect, DrawStyle drawStyle = DrawStyle::Stroked) override;
+	void drawPoint (const CPoint& point, const CColor& color) override;
+	void drawBitmap (IPlatformBitmap& bitmap, const CRect& dest,
+	                 const CPoint& offset = CPoint (0, 0), float alpha = 1.f) override;
+	/**
+	 *	@return true if supported and drawn
+	 */
+	bool drawBitmapNinePartTiled (IPlatformBitmap& bitmap, const CRect& dest,
+	                              const CNinePartTiledDescription& desc,
+	                              float alpha = 1.f) override;
+	/**
+	 *	@return true if supported and drawn
+	 */
+	bool fillRectWithBitmap (IPlatformBitmap& bitmap, const CRect& srcRect, const CRect& dstRect,
+	                         float alpha) override;
+	void clearRect (const CRect& rect) override;
+
+	void drawGraphicsPath (IPlatformGraphicsPath& path, PathDrawMode mode = PathDrawMode::Filled,
+	                       TransformMatrix* tm = nullptr) override;
+	void fillLinearGradient (IPlatformGraphicsPath& path, IPlatformGradient& gradient,
+	                         const CPoint& startPoint, const CPoint& endPoint, bool evenOdd = false,
+	                         TransformMatrix* tm = nullptr) override;
+	void fillRadialGradient (IPlatformGraphicsPath& path, IPlatformGradient& gradient,
+	                         const CPoint& center, CCoord radius,
+	                         const CPoint& originOffset = CPoint (0, 0), bool evenOdd = false,
+	                         TransformMatrix* tm = nullptr) override;
+
+	void drawString (IPlatformFont& font, IPlatformString& string, const CPoint& point,
+	                 const CColor& color, bool antialias = true) override;
+	CCoord getStringWidth (IPlatformFont& font, IPlatformString& string,
+	                       bool antialias = true) override;
+
+	void setClipRect (const CRect& clip) override;
+
+	void setLineStyle (const LineStyle& style) override;
+	void setLineWidth (CCoord width) override;
+
+	void setFillColor (const CColor& color) override;
+	void setFrameColor (const CColor& color) override;
+	void setGlobalAlpha (float newAlpha) override;
+	void setBitmapInterpolationQuality (BitmapInterpolationQuality quality) override;
+	void setPixelAlignmentMode (PixelAlignmentMode mode) override;
+	void setDrawAntialiased (bool state) override;
+
+	void concatTransform (const TransformMatrix& tm) override;
+
+	void saveGlobalState () override;
+	void restoreGlobalState () override;
+private:
+	void init ();
+	CGRect pixelAlligned (const CGRect& r) const;
+	CGPoint pixelAlligned (const CGPoint& p) const;
+	bool needLineWidthCTM () const;
+	void applyLineWidthCTM ();
+	void restoreLineWidthCTM ();
+
+	CGContextRef cgContext {nullptr};
+	CCoord lineWidth {1.};
+	BitmapInterpolationQuality bitmapInterpolationQuality {
+	    BitmapInterpolationQuality::SystemDefault};
+	PixelAlignmentMode pixelAlignmentMode {PixelAlignmentMode::On};
+};
+
+} // Platform
 } // VSTGUI
 
 #endif // MAC

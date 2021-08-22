@@ -36,6 +36,13 @@ enum class BitmapInterpolationQuality
 };
 
 //------------------------------------------------------------------------------------
+enum class PixelAlignmentMode
+{
+	On,
+	Off
+};
+
+//------------------------------------------------------------------------------------
 class IDrawDevice
 {
 public:
@@ -63,12 +70,13 @@ public:
 	 *	@return true if supported and drawn
 	 */
 	virtual bool drawBitmapNinePartTiled (IPlatformBitmap& bitmap, const CRect& dest,
-	                                      const CNinePartTiledDescription& desc, float alpha = 1.f);
+	                                      const CNinePartTiledDescription& desc,
+	                                      float alpha = 1.f) = 0;
 	/**
 	 *	@return true if supported and drawn
 	 */
 	virtual bool fillRectWithBitmap (IPlatformBitmap& bitmap, const CRect& srcRect,
-	                                 const CRect& dstRect, float alpha);
+	                                 const CRect& dstRect, float alpha) = 0;
 	virtual void clearRect (const CRect& rect) = 0;
 
 	virtual void drawGraphicsPath (IPlatformGraphicsPath& path,
@@ -83,11 +91,11 @@ public:
 	                                 bool evenOdd = false, TransformMatrix* tm = nullptr) = 0;
 
 	virtual void drawString (IPlatformFont& font, IPlatformString& string, const CPoint& point,
-	                         bool antialias = true) = 0;
+	                         const CColor& color, bool antialias = true) = 0;
 	virtual CCoord getStringWidth (IPlatformFont& font, IPlatformString& string,
 	                               bool antialias = true) = 0;
 
-	virtual void setClipRect (const CRect& clip);
+	virtual void setClipRect (const CRect& clip) = 0;
 
 	virtual void setLineStyle (const LineStyle& style) = 0;
 	virtual void setLineWidth (CCoord width) = 0;
@@ -97,8 +105,10 @@ public:
 	virtual void setFontColor (const CColor& color) = 0;
 	virtual void setGlobalAlpha (float newAlpha) = 0;
 	virtual void setBitmapInterpolationQuality (BitmapInterpolationQuality quality) = 0;
+	virtual void setPixelAlignmentMode (PixelAlignmentMode mode) = 0;
+	virtual void setDrawAntialiased (bool state) = 0;
 
-	virtual void concatTransform (const TransformMatrix& tm);
+	virtual void concatTransform (const TransformMatrix& tm) = 0;
 
 	virtual void saveGlobalState () = 0;
 	virtual void restoreGlobalState () = 0;

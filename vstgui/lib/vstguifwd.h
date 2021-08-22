@@ -319,6 +319,12 @@ class IPlatformFrameConfig;
 class IPlatformFrameCallback;
 class IPlatformTimerCallback;
 
+namespace Platform {
+
+class IDrawDevice;
+
+} // Platform
+
 enum class PlatformType : int32_t;
 enum class PlatformGraphicsPathFillMode : int32_t;
 
@@ -332,5 +338,6 @@ using PlatformFactoryPtr = std::unique_ptr<IPlatformFactory>;
 using PlatformGradientPtr = std::unique_ptr<IPlatformGradient>;
 using PlatformGraphicsPathPtr = std::unique_ptr<IPlatformGraphicsPath>;
 using PlatformGraphicsPathFactoryPtr = std::shared_ptr<IPlatformGraphicsPathFactory>;
+using PlatformDrawDevice = std::unique_ptr<Platform::IDrawDevice>;
 
 } // VSTGUI

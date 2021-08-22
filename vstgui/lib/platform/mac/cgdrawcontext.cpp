@@ -22,12 +22,403 @@ namespace VSTGUI {
 
 //-----------------------------------------------------------------------------
 template <typename Proc>
-void DoGraphicStateSave (CGContextRef cgContext, Proc proc)
+void DoGraphicStateSave (CGContextRef context, Proc proc, bool condition = true)
+{
+	if (condition)
+		CGContextSaveGState (context);
+	proc ();
+	if (condition)
+		CGContextRestoreGState (context);
+}
+
+//-----------------------------------------------------------------------------
+namespace Platform {
+
+//-----------------------------------------------------------------------------
+static CGPathDrawingMode drawStyleToCGPathDrawingMode (DrawStyle style)
+{
+	switch (style)
+	{
+		case DrawStyle::Stroked: return kCGPathStroke;
+		case DrawStyle::Filled: return kCGPathFill;
+		case DrawStyle::FilledAndStroked: return kCGPathFillStroke;
+	}
+}
+
+//-----------------------------------------------------------------------------
+CoreGraphicsDrawDevice::CoreGraphicsDrawDevice (CGContextRef context)
+: cgContext (context)
+{
+	CGContextRetain (cgContext);
+}
+
+//-----------------------------------------------------------------------------
+CoreGraphicsDrawDevice::~CoreGraphicsDrawDevice () noexcept
+{
+	restoreGlobalState ();
+	restoreGlobalState ();
+	CGContextRelease (cgContext);
+}
+
+//-----------------------------------------------------------------------------
+CGRect CoreGraphicsDrawDevice::pixelAlligned (const CGRect& r) const
+{
+	CGRect result;
+	result.origin = CGContextConvertPointToDeviceSpace (cgContext, r.origin);
+	result.size = CGContextConvertSizeToDeviceSpace (cgContext, r.size);
+	result.origin.x = static_cast<CGFloat> (std::round (result.origin.x));
+	result.origin.y = static_cast<CGFloat> (std::round (result.origin.y));
+	result.size.width = static_cast<CGFloat> (std::round (result.size.width));
+	result.size.height = static_cast<CGFloat> (std::round (result.size.height));
+	result.origin = CGContextConvertPointToUserSpace (cgContext, result.origin);
+	result.size = CGContextConvertSizeToUserSpace (cgContext, result.size);
+	return result;
+}
+
+//-----------------------------------------------------------------------------
+CGPoint CoreGraphicsDrawDevice::pixelAlligned (const CGPoint& p) const
+{
+	CGPoint result = CGContextConvertPointToDeviceSpace (cgContext, p);
+	result.x = static_cast<CGFloat> (std::round (result.x));
+	result.y = static_cast<CGFloat> (std::round (result.y));
+	result = CGContextConvertPointToUserSpace (cgContext, result);
+	return result;
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::init ()
+{
+	saveGlobalState ();
+	CGContextSetAllowsAntialiasing (cgContext, true);
+	CGContextSetAllowsFontSmoothing (cgContext, true);
+	CGContextSetAllowsFontSubpixelPositioning (cgContext, true);
+	CGContextSetAllowsFontSubpixelQuantization (cgContext, true);
+	CGContextSetShouldAntialias (cgContext, false);
+	CGContextSetFillColorSpace (cgContext, GetCGColorSpace ());
+	CGContextSetStrokeColorSpace (cgContext, GetCGColorSpace ());
+	saveGlobalState ();
+	CGAffineTransform cgCTM = CGAffineTransformMake (1.0, 0.0, 0.0, -1.0, 0.0, 0.0);
+	CGContextSetTextMatrix (cgContext, cgCTM);
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::beginDraw ()
+{
+	// noop
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::endDraw ()
+{
+	// noop
+}
+
+//-----------------------------------------------------------------------------
+bool CoreGraphicsDrawDevice::needLineWidthCTM () const
+{
+	int32_t width = static_cast<int32_t> (lineWidth);
+	if (static_cast<CCoord> (width) == lineWidth && width % 2)
+		return true;
+	return false;
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::applyLineWidthCTM ()
+{
+	CGContextTranslateCTM (cgContext, 0.5, 0.5);
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::restoreLineWidthCTM ()
+{
+	CGContextTranslateCTM (cgContext, -0.5, -0.5);
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawLine (const LinePair& line)
+{
+	auto needCTMChange = (pixelAlignmentMode == PixelAlignmentMode::On) && needLineWidthCTM ();
+	CGContextBeginPath (cgContext);
+	CGPoint first = CGPointFromCPoint (line.first);
+	CGPoint second = CGPointFromCPoint (line.second);
+
+	if (pixelAlignmentMode == PixelAlignmentMode::On)
+	{
+		first = pixelAlligned (first);
+		second = pixelAlligned (second);
+		if (needCTMChange)
+			applyLineWidthCTM ();
+	}
+	CGContextMoveToPoint (cgContext, first.x, first.y);
+	CGContextAddLineToPoint (cgContext, second.x, second.y);
+	CGContextDrawPath (cgContext, kCGPathStroke);
+	if (needCTMChange)
+		restoreLineWidthCTM ();
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawLines (const LineList& lines)
+{
+	assert (lines.empty () == false);
+
+	auto needCTMChange = (pixelAlignmentMode == PixelAlignmentMode::On) && needLineWidthCTM ();
+
+	auto cgPoints = std::unique_ptr<CGPoint[]> (new CGPoint[lines.size () * 2]);
+	uint32_t index = 0;
+	if (pixelAlignmentMode == PixelAlignmentMode::On)
+	{
+		for (const auto& line : lines)
+		{
+			cgPoints[index] = pixelAlligned (CGPointFromCPoint (line.first));
+			cgPoints[index + 1] = pixelAlligned (CGPointFromCPoint (line.second));
+			index += 2;
+		}
+	}
+	else
+	{
+		for (const auto& line : lines)
+		{
+			cgPoints[index] = CGPointFromCPoint (line.first);
+			cgPoints[index + 1] = CGPointFromCPoint (line.second);
+			index += 2;
+		}
+	}
+
+	if (needCTMChange)
+		applyLineWidthCTM ();
+
+	constexpr size_t maxPointsPerIteration = 16u;
+	auto pointPtr = cgPoints.get ();
+	auto numPoints = lines.size () * 2u;
+	while (numPoints)
+	{
+		size_t np = std::min (numPoints, std::min (maxPointsPerIteration, numPoints));
+		CGContextStrokeLineSegments (cgContext, pointPtr, np);
+		numPoints -= np;
+		pointPtr += np;
+	}
+	if (needCTMChange)
+		restoreLineWidthCTM ();
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawPolygon (const PointList& polygonPointList, DrawStyle drawStyle)
+{
+	assert (polygonPointList.empty () == false);
+
+	CGContextBeginPath (cgContext);
+	CGPoint p = CGPointFromCPoint (polygonPointList[0]);
+	if (pixelAlignmentMode == PixelAlignmentMode::On)
+		p = pixelAlligned (p);
+	CGContextMoveToPoint (cgContext, p.x, p.y);
+	for (uint32_t i = 1; i < polygonPointList.size (); i++)
+	{
+		p = CGPointFromCPoint (polygonPointList[i]);
+		if (pixelAlignmentMode == PixelAlignmentMode::On)
+			p = pixelAlligned (p);
+		CGContextAddLineToPoint (cgContext, p.x, p.y);
+	}
+	CGContextDrawPath (cgContext, drawStyleToCGPathDrawingMode (drawStyle));
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawRect (const CRect& rect, DrawStyle drawStyle)
+{
+	auto needCTMChange = (pixelAlignmentMode == PixelAlignmentMode::On) &&
+	                     (drawStyle != DrawStyle::Filled) && needLineWidthCTM ();
+	CGRect r = CGRectFromCRect (rect);
+	if (drawStyle != DrawStyle::Filled)
+	{
+		r.size.width -= 1.;
+		r.size.height -= 1.;
+	}
+	if (pixelAlignmentMode == PixelAlignmentMode::On)
+	{
+		r = pixelAlligned (r);
+		if (needCTMChange)
+			applyLineWidthCTM ();
+	}
+	CGContextBeginPath (cgContext);
+	CGContextAddRect (cgContext, r);
+	CGContextDrawPath (cgContext, drawStyleToCGPathDrawingMode (drawStyle));
+	if (needCTMChange)
+		restoreLineWidthCTM ();
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawArc (const CRect& rect, float startAngle1, float endAngle2,
+                                      DrawStyle drawStyle)
+{
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawEllipse (const CRect& rect, DrawStyle drawStyle)
+{
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawPoint (const CPoint& point, const CColor& color)
+{
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawBitmap (IPlatformBitmap& bitmap, const CRect& dest,
+                                         const CPoint& offset, float alpha)
+{
+}
+
+//-----------------------------------------------------------------------------
+bool CoreGraphicsDrawDevice::drawBitmapNinePartTiled (IPlatformBitmap& bitmap, const CRect& dest,
+                                                      const CNinePartTiledDescription& desc,
+                                                      float alpha)
+{
+	return false;
+}
+
+//-----------------------------------------------------------------------------
+bool CoreGraphicsDrawDevice::fillRectWithBitmap (IPlatformBitmap& bitmap, const CRect& srcRect,
+                                                 const CRect& dstRect, float alpha)
+{
+	return false;
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::clearRect (const CRect& rect)
+{
+	CGContextClearRect (cgContext, CGRectFromCRect (rect));
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawGraphicsPath (IPlatformGraphicsPath& path, PathDrawMode mode,
+                                               TransformMatrix* tm)
+{
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::fillLinearGradient (IPlatformGraphicsPath& path,
+                                                 IPlatformGradient& gradient,
+                                                 const CPoint& startPoint, const CPoint& endPoint,
+                                                 bool evenOdd, TransformMatrix* tm)
+{
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::fillRadialGradient (IPlatformGraphicsPath& path,
+                                                 IPlatformGradient& gradient, const CPoint& center,
+                                                 CCoord radius, const CPoint& originOffset,
+                                                 bool evenOdd, TransformMatrix* tm)
+{
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::drawString (IPlatformFont& font, IPlatformString& string,
+                                         const CPoint& point, const CColor& color, bool antialias)
+{
+}
+
+//-----------------------------------------------------------------------------
+CCoord CoreGraphicsDrawDevice::getStringWidth (IPlatformFont& font, IPlatformString& string,
+                                               bool antialias)
+{
+	return 0.;
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::setClipRect (const CRect& clip)
+{
+	CGContextClipToRect (cgContext, CGRectFromCRect (clip));
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::setLineStyle (const LineStyle& style)
+{
+	switch (style.getLineCap ())
+	{
+		case CLineStyle::kLineCapButt: CGContextSetLineCap (cgContext, kCGLineCapButt); break;
+		case CLineStyle::kLineCapRound: CGContextSetLineCap (cgContext, kCGLineCapRound); break;
+		case CLineStyle::kLineCapSquare: CGContextSetLineCap (cgContext, kCGLineCapSquare); break;
+	}
+	switch (style.getLineJoin ())
+	{
+		case CLineStyle::kLineJoinMiter: CGContextSetLineJoin (cgContext, kCGLineJoinMiter); break;
+		case CLineStyle::kLineJoinRound: CGContextSetLineJoin (cgContext, kCGLineJoinRound); break;
+		case CLineStyle::kLineJoinBevel: CGContextSetLineJoin (cgContext, kCGLineJoinBevel); break;
+	}
+	if (style.getDashCount () > 0)
+	{
+		auto dashLengths = std::unique_ptr<CGFloat[]> (new CGFloat[style.getDashCount ()]);
+		for (uint32_t i = 0; i < style.getDashCount (); i++)
+		{
+			dashLengths[i] = static_cast<CGFloat> (lineWidth * style.getDashLengths ()[i]);
+		}
+		CGContextSetLineDash (cgContext, static_cast<CGFloat> (style.getDashPhase ()),
+		                      dashLengths.get (), style.getDashCount ());
+	}
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::setLineWidth (CCoord width)
+{
+	lineWidth = width;
+	CGContextSetLineWidth (cgContext, width);
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::setFillColor (const CColor& color)
+{
+	CGContextSetFillColorWithColor (cgContext, getCGColor (color));
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::setFrameColor (const CColor& color)
+{
+	CGContextSetStrokeColorWithColor (cgContext, getCGColor (color));
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::setGlobalAlpha (float newAlpha)
+{
+	CGContextSetAlpha (cgContext, newAlpha);
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::setBitmapInterpolationQuality (BitmapInterpolationQuality quality)
+{
+	bitmapInterpolationQuality = quality;
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::setPixelAlignmentMode (PixelAlignmentMode mode)
+{
+	pixelAlignmentMode = mode;
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::setDrawAntialiased (bool state)
+{
+	CGContextSetAllowsAntialiasing (cgContext, state);
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::concatTransform (const TransformMatrix& tm)
+{
+	CGContextConcatCTM (cgContext, createCGAffineTransform (tm));
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::saveGlobalState ()
 {
 	CGContextSaveGState (cgContext);
-	proc ();
+}
+
+//-----------------------------------------------------------------------------
+void CoreGraphicsDrawDevice::restoreGlobalState ()
+{
 	CGContextRestoreGState (cgContext);
 }
+
+//-----------------------------------------------------------------------------
+} // Platform
 
 //-----------------------------------------------------------------------------
 CGDrawContext::CGDrawContext (CGContextRef cgContext, const CRect& rect)
