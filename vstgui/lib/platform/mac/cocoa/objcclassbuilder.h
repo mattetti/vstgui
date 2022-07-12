@@ -4,13 +4,11 @@
 
 #pragma once
 
-#include <objc/runtime.h>
-#include <objc/message.h>
-#include <tuple>
-#include <string>
-#include <optional>
-#include <cmath>
-#include <cassert>
+#import <objc/runtime.h>
+#import <objc/message.h>
+#import <tuple>
+#import <string>
+#import <optional>
 
 //------------------------------------------------------------------------------------
 namespace VSTGUI {
@@ -19,36 +17,26 @@ namespace VSTGUI {
 template<typename T>
 struct ObjCVariable
 {
-	ObjCVariable (__unsafe_unretained id obj, Ivar ivar) : obj (obj), ivar (ivar) {}
-	ObjCVariable (ObjCVariable&& o) { *this = std::move (o); }
+	ObjCVariable (id obj, Ivar ivar) : obj (obj), ivar (ivar) {}
 
-	ObjCVariable& operator= (ObjCVariable&& o)
-	{
-		obj = o.obj;
-		ivar = o.ivar;
-		o.obj = nullptr;
-		o.ivar = nullptr;
-		return *this;
-	}
+	T get () const { return static_cast<T> (object_getIvar (obj, ivar)); }
 
-	T get () const { return (__bridge T) (object_getIvar (obj, ivar)); }
-
-	void set (const T& value) { object_setIvar (obj, ivar, (__bridge id) (value)); }
+	void set (const T& value) { object_setIvar (obj, ivar, static_cast<id> (value)); }
 
 private:
-	__unsafe_unretained id obj;
+	id obj;
 	Ivar ivar {nullptr};
 };
 
 //------------------------------------------------------------------------------------
 struct ObjCInstance
 {
-	ObjCInstance (__unsafe_unretained id obj) : obj (obj) {}
+	ObjCInstance (id obj) : obj (obj) {}
 
 	template<typename T>
 	std::optional<ObjCVariable<T>> getVariable (const char* name) const
 	{
-		if (__strong auto ivar = class_getInstanceVariable (object_getClass (obj), name))
+		if (auto ivar = class_getInstanceVariable ([obj class], name))
 		{
 			return {ObjCVariable<T> (obj, ivar)};
 		}
@@ -58,17 +46,14 @@ struct ObjCInstance
 	template<typename Func, typename... T>
 	void callSuper (SEL selector, T... args) const
 	{
-		void (*f) (__unsafe_unretained id, SEL, T...) =
-			(void (*) (__unsafe_unretained id, SEL, T...))objc_msgSendSuper;
+		void (*f) (id, SEL, T...) = (void (*) (id, SEL, T...))objc_msgSendSuper;
 		f (getSuper (), selector, args...);
 	}
 
 	template<typename Func, typename R, typename... T>
 	R callSuper (SEL selector, T... args) const
 	{
-		R (*f)
-		(__unsafe_unretained id, SEL, T...) =
-			(R (*) (__unsafe_unretained id, SEL, T...))objc_msgSendSuper;
+		R (*f) (id, SEL, T...) = (R (*) (id, SEL, T...))objc_msgSendSuper;
 		return f (getSuper (), selector, args...);
 	}
 
@@ -78,12 +63,12 @@ private:
 		if (os.receiver == nullptr)
 		{
 			os.receiver = obj;
-			os.super_class = class_getSuperclass (object_getClass (obj));
+			os.super_class = class_getSuperclass ([obj class]);
 		}
-		return (__bridge id) (&os);
+		return static_cast<id> (&os);
 	}
 
-	__unsafe_unretained id obj;
+	id obj;
 	mutable objc_super os {};
 };
 
@@ -202,7 +187,7 @@ ObjCClassBuilder& ObjCClassBuilder::addMethod (SEL selector, Func imp)
 template<typename T>
 inline ObjCClassBuilder& ObjCClassBuilder::addIvar (const char* name)
 {
-	return addIvar (name, sizeof (T), static_cast<uint8_t> (std::log2 (sizeof (T))), @encode (T));
+	return addIvar (name, sizeof (T), static_cast<uint8_t> (log2 (sizeof (T))), @encode (T));
 }
 
 //-----------------------------------------------------------------------------
